@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f1117; font-family: 'Segoe UI', sans-serif; color: #fff; overflow: hidden; }
+  canvas { display: block; }
+  #ui { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); display: flex; gap: 12px; align-items: center; z-index: 10; }
+  button { background: #1e2230; border: 1px solid #3a4060; color: #fff; padding: 10px 22px; border-radius: 8px; cursor: pointer; font-size: 13px; transition: all 0.2s; }
+  button:hover { background: #2a3050; border-color: #6070c0; }
+  #stage-label { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); text-align: center; z-index: 10; pointer-events: none; }
+  #stage-title { font-size: 18px; font-weight: 700; color: #e0e8ff; margin-bottom: 4px; }
+  #stage-desc { font-size: 12px; color: #8090b0; max-width: 580px; line-height: 1.5; }
+  #progress-bar { position: fixed; top: 0; left: 0; height: 3px; background: linear-gradient(90deg, #4060d0, #60a0ff); transition: width 0.5s; z-index: 20; }
+  #stage-num { font-size: 11px; color: #4060a0; margin-bottom: 3px; letter-spacing: 1px; text-transform: uppercase; }
+</style>
+</head>
+<body>
+<div id="progress-bar"></div>
+<canvas id="c"></canvas>
+<div id="stage-label">
+  <div id="stage-num"></div>
+  <div id="stage-title"></div>
+  <div id="stage-desc"></div>
+</div>
+<div id="ui">
+  <button id="prevBtn">&#8592; Prev</button>
+  <button id="playBtn">&#9654; Play</button>
+  <button id="nextBtn">Next &#8594;</button>
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+const W = canvas.width, H = canvas.height;
+const cx = W/2, cy = H/2 + 10;
+
+const stages = [
+  { title: 'Stage 1 — Traditional Strategic Groups (Pre-2015)', num: '1 / 5',
+    desc: 'The tech industry has clear, distinct strategic groups separated by mobility barriers. Different competitors, different profit levels, high cost to move between groups.' },
+  { title: 'Stage 2 — Microsoft in Core Groups (Pre-2015)', num: '2 / 5',
+    desc: 'Microsoft starts in Enterprise Software and OS/Devices — its historical home. Strong mobility barriers protect each group. Azure is just beginning.' },
+  { title: 'Stage 3 — Microsoft Crosses Barriers (2015–2020)', num: '3 / 5',
+    desc: 'Microsoft acquires GitHub (2018), grows Azure, invests $13B in OpenAI. It uses existing assets — capital, brands, distribution — to cross into adjacent groups.' },
+  { title: 'Stage 4 — AI Dissolves the Boundaries (2020–2026)', num: '4 / 5',
+    desc: 'Copilot, Azure AI Foundry, GitHub Copilot, and MAI models connect every group through a shared AI agent layer. Build 2026: Windows declared the "OS for AI agents."' },
+  { title: 'Stage 5 — New Landscape: Platform Ecosystem Above Groups', num: '5 / 5',
+    desc: 'Strategic groups still exist, but Microsoft now sits ABOVE them as an integrated ecosystem. New entrants can enter single groups — AI lowers that cost — but cannot replicate the stack. This is what Caves & Porter (1977) cannot explain.' },
+];
+
+const groups = [
+  { label: 'Enterprise\nSoftware',   color: '#4a80e0', x: cx-240, y: cy-140, r: 78,  firms: ['SAP','Oracle','Salesforce'], ms: true  },
+  { label: 'Cloud\nInfrastructure',  color: '#e06040', x: cx+60,  y: cy-180, r: 82,  firms: ['AWS','Google Cloud'],        ms: false },
+  { label: 'Developer\nTools',       color: '#40b080', x: cx+280, y: cy-40,  r: 68,  firms: ['JetBrains','Atlassian'],     ms: false },
+  { label: 'OS &\nDevices',          color: '#9060d0', x: cx-210, y: cy+160, r: 72,  firms: ['Apple'],                    ms: true  },
+  { label: 'AI\nModels',             color: '#e0a030', x: cx+120, y: cy+170, r: 66,  firms: ['OpenAI','Anthropic'],        ms: false },
+  { label: 'Consumer\nAI Assistants',color: '#e04080', x: cx-30,  y: cy+60,  r: 62,  firms: ['Apple','Amazon'],           ms: false },
+];
+
+let stage = 0, animT = 0, raf, playTimer = null;
+
+function lerp(a,b,t){ return a+(b-a)*t; }
+function pulse(){ return 0.5+0.5*Math.sin(animT*2); }
+
+function hexToRgb(hex){
+  const r=parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16);
+  return [r,g,b];
+}
+
+function drawCircle(x,y,r,fillColor,strokeColor,alpha,lineWidth,dash){
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.lineWidth = lineWidth||1.5;
+  if(dash) ctx.setLineDash(dash); else ctx.setLineDash([]);
+  const [r1,g1,b1]=hexToRgb(fillColor);
+  const grad=ctx.createRadialGradient(x-r*0.3,y-r*0.3,r*0.05,x,y,r);
+  grad.addColorStop(0,`rgba(${r1},${g1},${b1},0.7)`);
+  grad.addColorStop(1,`rgba(${r1},${g1},${b1},0.15)`);
+  ctx.fillStyle=grad;
+  ctx.strokeStyle=strokeColor;
+  ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+
+function drawText(text,x,y,font,color,alpha,align){
+  ctx.save(); ctx.globalAlpha=alpha; ctx.fillStyle=color; ctx.font=font;
+  ctx.textAlign=align||'center'; ctx.textBaseline='middle';
+  text.split('\n').forEach((line,i,arr)=>{
+    ctx.fillText(line,x,y+(i-(arr.length-1)/2)*16);
+  });
+  ctx.restore();
+}
+
+function drawLine(x1,y1,x2,y2,color,alpha,width,dash){
+  ctx.save(); ctx.globalAlpha=alpha; ctx.strokeStyle=color;
+  ctx.lineWidth=width||1.5;
+  if(dash) ctx.setLineDash(dash); else ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  ctx.restore();
+}
+
+function drawGlow(x,y,r,color,alpha){
+  const [r1,g1,b1]=hexToRgb(color);
+  const grad=ctx.createRadialGradient(x,y,r*0.2,x,y,r*2.2);
+  grad.addColorStop(0,`rgba(${r1},${g1},${b1},${alpha})`);
+  grad.addColorStop(1,`rgba(${r1},${g1},${b1},0)`);
+  ctx.save(); ctx.fillStyle=grad;
+  ctx.beginPath(); ctx.arc(x,y,r*2.2,0,Math.PI*2); ctx.fill(); ctx.restore();
+}
+
+function drawBarrier(g, alpha){
+  ctx.save(); ctx.globalAlpha=alpha;
+  ctx.strokeStyle='#3a5590'; ctx.lineWidth=1.2;
+  ctx.setLineDash([5,4]);
+  ctx.beginPath(); ctx.arc(g.x,g.y,g.r+20,0,Math.PI*2); ctx.stroke();
+  ctx.restore();
+}
+
+function drawMSBadge(x,y,r,alpha,label){
+  ctx.save(); ctx.globalAlpha=alpha;
+  drawGlow(x,y,r,'#4070f0',0.25);
+  const grad=ctx.createRadialGradient(x-r*0.2,y-r*0.2,r*0.1,x,y,r);
+  grad.addColorStop(0,'rgba(80,130,255,0.75)');
+  grad.addColorStop(1,'rgba(30,60,170,0.45)');
+  ctx.fillStyle=grad; ctx.strokeStyle='#6090ff'; ctx.lineWidth=2.5; ctx.setLineDash([]);
+  ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle='#ffffff'; ctx.font='bold 15px Segoe UI';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('Microsoft',x,y-9);
+  ctx.font='10px Segoe UI'; ctx.fillStyle='#a0c0ff';
+  ctx.fillText(label,x,y+9);
+  ctx.restore();
+}
+
+function drawAIBlob(alpha){
+  const p=pulse();
+  const grad=ctx.createRadialGradient(cx,cy,30,cx,cy,310);
+  grad.addColorStop(0,`rgba(60,120,255,${0.18+p*0.08})`);
+  grad.addColorStop(0.6,`rgba(40,80,200,${0.09+p*0.04})`);
+  grad.addColorStop(1,'rgba(20,40,120,0)');
+  ctx.save(); ctx.globalAlpha=alpha; ctx.fillStyle=grad;
+  ctx.beginPath(); ctx.arc(cx,cy,310,0,Math.PI*2); ctx.fill(); ctx.restore();
+  if(alpha>0.3){
+    drawText('AI AGENT LAYER',cx,cy,'bold 13px Segoe UI','#60a0ff',alpha*0.9);
+    drawText('Copilot · Azure AI · GitHub Copilot · MAI Models',cx,cy+20,'10px Segoe UI','#4070b0',alpha*0.8);
+  }
+}
+
+function drawEcoBoundary(alpha){
+  ctx.save(); ctx.globalAlpha=alpha;
+  ctx.strokeStyle='#5080e0'; ctx.lineWidth=2.5; ctx.setLineDash([9,5]);
+  ctx.beginPath(); ctx.arc(cx-10,cy-10,330,0,Math.PI*2); ctx.stroke();
+  ctx.setLineDash([]);
+  drawText('MICROSOFT ECOSYSTEM BOUNDARY',cx,cy-342,'bold 11px Segoe UI','#6090ff',alpha);
+  drawText('Switching cost = replacing the entire integrated stack',cx,cy-324,'10px Segoe UI','#4060a0',alpha);
+  ctx.restore();
+}
+
+function drawNewEntrant(alpha){
+  if(alpha<0.05) return;
+  const g=groups[2];
+  const tx=g.x+g.r+18, ty=g.y-20;
+  ctx.save(); ctx.globalAlpha=alpha;
+  ctx.strokeStyle='#ff6040'; ctx.fillStyle='#ff6040'; ctx.lineWidth=2; ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(tx+90,ty); ctx.lineTo(tx+14,ty); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(tx+14,ty); ctx.lineTo(tx+26,ty-7); ctx.lineTo(tx+26,ty+7); ctx.closePath(); ctx.fill();
+  ctx.font='bold 10px Segoe UI'; ctx.textAlign='center';
+  ctx.fillStyle='#ff8060';
+  ctx.fillText('AI Startup',tx+112,ty-11);
+  ctx.fillText('CAN enter one group',tx+112,ty+4);
+  ctx.fillText('CANNOT replicate stack',tx+112,ty+18);
+  ctx.restore();
+}
+
+function render(){
+  ctx.clearRect(0,0,W,H);
+  const s=stage, p=pulse();
+
+  if(s===0){
+    // All groups, no MS, barriers visible
+    groups.forEach(g=>{
+      drawBarrier(g,0.75);
+      drawCircle(g.x,g.y,g.r,g.color,g.color+'cc',1,1.5);
+      drawText(g.label,g.x,g.y,'bold 13px Segoe UI','#ffffff',1);
+      g.firms.forEach((f,i,arr)=>{
+        const a=(Math.PI*2/arr.length)*i-Math.PI/2;
+        drawText(f,g.x+Math.cos(a)*g.r*0.6,g.y+Math.sin(a)*g.r*0.6,'10px Segoe UI','#aac0ff',0.8);
+      });
+    });
+    drawText('← Mobility Barrier',groups[0].x,groups[0].y-groups[0].r-28,'10px Segoe UI','#4a70a0',0.8);
+
+  } else if(s===1){
+    // MS in enterprise + OS visibly, others no MS
+    groups.forEach((g,i)=>{
+      drawBarrier(g,0.6);
+      const msHere=g.ms;
+      drawCircle(g.x,g.y,g.r,g.color,g.color+(msHere?'ff':'88'),1,msHere?2:1.5);
+      drawText(g.label,g.x,g.y,'bold 13px Segoe UI','#ffffff',1);
+      g.firms.forEach((f,i2,arr)=>{
+        const a=(Math.PI*2/arr.length)*i2-Math.PI/2;
+        drawText(f,g.x+Math.cos(a)*g.r*0.6,g.y+Math.sin(a)*g.r*0.6,'10px Segoe UI','#aac0ff',0.8);
+      });
+      if(msHere){
+        drawGlow(g.x,g.y,g.r,'#4070f0',0.12);
+        ctx.save(); ctx.globalAlpha=0.9;
+        ctx.fillStyle='#3060d0'; ctx.strokeStyle='#80a0ff'; ctx.lineWidth=2; ctx.setLineDash([]);
+        ctx.beginPath(); ctx.arc(g.x+18,g.y+18,18,0,Math.PI*2); ctx.fill(); ctx.stroke();
+        ctx.fillStyle='#fff'; ctx.font='bold 9px Segoe UI'; ctx.textAlign='center'; ctx.textBaseline='middle';
+        ctx.fillText('MS',g.x+18,g.y+18); ctx.restore();
+      }
+    });
+
+  } else if(s===2){
+    // MS in all groups (some faint), connectors starting
+    groups.forEach((g,i)=>{
+      drawBarrier(g,0.25);
+      drawCircle(g.x,g.y,g.r,g.color,g.color+'cc',1,2);
+      drawText(g.label,g.x,g.y,'bold 13px Segoe UI','#ffffff',1);
+      g.firms.forEach((f,i2,arr)=>{
+        const a=(Math.PI*2/arr.length)*i2-Math.PI/2;
+        drawText(f,g.x+Math.cos(a)*g.r*0.58,g.y+Math.sin(a)*g.r*0.58,'10px Segoe UI','#aac0ff',0.6);
+      });
+      const msa=g.ms?0.9:0.55;
+      drawGlow(g.x,g.y,g.r,'#4070f0',0.1*msa);
+      ctx.save(); ctx.globalAlpha=msa;
+      ctx.fillStyle='#3060d0'; ctx.strokeStyle='#80a0ff'; ctx.lineWidth=2; ctx.setLineDash([]);
+      ctx.beginPath(); ctx.arc(g.x+18,g.y+16,16,0,Math.PI*2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle='#fff'; ctx.font='bold 8px Segoe UI'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText('MS',g.x+18,g.y+16); ctx.restore();
+    });
+    groups.forEach((g1,i)=> groups.forEach((g2,j)=>{
+      if(j>i) drawLine(g1.x,g1.y,g2.x,g2.y,'#3050a0',0.18+0.08*p,1,[6,6]);
+    }));
+    drawText('GitHub acquired 2018 · $13B OpenAI investment · Azure growth',cx,H-60,'11px Segoe UI','#5070a0',0.9);
+
+  } else if(s===3){
+    // Boundaries fading, AI blob emerges, ecosystem ring
+    groups.forEach((g,i)=>{
+      drawBarrier(g,0.08);
+      drawCircle(g.x,g.y,g.r,g.color,g.color+'55',0.6,1.5);
+      drawText(g.label,g.x,g.y,'bold 12px Segoe UI','#ffffff',0.75);
+    });
+    groups.forEach((g1,i)=> groups.forEach((g2,j)=>{
+      if(j>i) drawLine(g1.x,g1.y,g2.x,g2.y,'#4060c0',0.2+0.1*p,1.5,[5,5]);
+    }));
+    drawAIBlob(0.85+0.1*p);
+    drawEcoBoundary(0.7+0.15*p);
+    drawMSBadge(cx-10,cy-10,60,0.85+0.08*p,'Agentic Stack');
+
+  } else if(s===4){
+    // New landscape
+    groups.forEach((g,i)=>{
+      drawBarrier(g,0.12);
+      drawCircle(g.x,g.y,g.r,g.color,g.color+'44',0.55,1);
+      drawText(g.label,g.x,g.y,'12px Segoe UI','#c0d0ff',0.7);
+    });
+    drawAIBlob(0.55+0.1*p);
+    drawEcoBoundary(0.9);
+    drawMSBadge(cx-10,cy-10,72,0.95,'Platform Ecosystem');
+    drawNewEntrant(0.85);
+    // Theory note
+    ctx.save(); ctx.globalAlpha=0.8;
+    ctx.fillStyle='#ff7050'; ctx.font='bold 11px Segoe UI'; ctx.textAlign='left';
+    ctx.fillText('⚠  Caves & Porter (1977) explains group-level barriers.',32,H-75);
+    ctx.fillText('    It cannot explain this ecosystem boundary.  ← New theoretical gap.',32,H-58);
+    ctx.restore();
+  }
+
+  animT+=0.018;
+}
+
+function frame(){ render(); raf=requestAnimationFrame(frame); }
+
+function updateUI(){
+  document.getElementById('stage-title').textContent=stages[stage].title;
+  document.getElementById('stage-desc').textContent=stages[stage].desc;
+  document.getElementById('stage-num').textContent=stages[stage].num;
+  document.getElementById('progress-bar').style.width=((stage/(stages.length-1))*100)+'%';
+}
+
+document.getElementById('nextBtn').onclick=()=>{ if(stage<stages.length-1){stage++;updateUI();} };
+document.getElementById('prevBtn').onclick=()=>{ if(stage>0){stage--;updateUI();} };
+document.getElementById('playBtn').onclick=function(){
+  if(playTimer){ clearInterval(playTimer); playTimer=null; this.textContent='▶ Play'; }
+  else{
+    this.textContent='⏸ Pause';
+    playTimer=setInterval(()=>{
+      if(stage<stages.length-1){stage++;updateUI();}
+      else{ clearInterval(playTimer); playTimer=null; document.getElementById('playBtn').textContent='▶ Play'; }
+    },3200);
+  }
+};
+
+updateUI(); frame();
+</script>
+</body>
+</html>
