@@ -31,7 +31,7 @@ Use the **Prev / Next** buttons to step through stages, or **Play** to auto-adva
 
 ## Live Demo
 
-[View the animation](https://krysd09.github.io/microsoft-strategic-groups/)
+[View the animation](https://krysd09.github.io/microsoft-strategic-groups/index.html)
 
 ---
 
